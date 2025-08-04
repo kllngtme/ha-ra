@@ -1,7 +1,7 @@
 # HA-RA
 RetroAchievement Integration for Home Assistant.
 
-Start playing at: [retroacheivement.org](https://retroachievements.org/)
+Start playing at: [retroachievements.org](https://retroachievements.org/)
 
 # Features:
 This brings 5 entities to Home Assistant
