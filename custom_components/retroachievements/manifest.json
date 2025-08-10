@@ -1,0 +1,11 @@
+{
+  "domain": "retroachievements",
+  "name": "RetroAchievements",
+  "version": "0.1.0",
+  "documentation": "https://github.com/kllngtme/ha-ra",
+  "requirements": ["aiohttp"],
+  "dependencies": [],
+  "codeowners": ["@kllngtme"],
+  "iot_class": "cloud_polling",
+  "config_flow": true
+}
