@@ -1,6 +1,7 @@
-# HA-RA
-RetroAchievement Integration for Home Assistant.
+# HA-RA 
+This is a RetroAchievement Integration for Home Assistant.
 
+<img width="256" height="256" alt="logo" src="https://github.com/user-attachments/assets/1192e0ad-14ff-40ec-bb83-3ce8af7d0de0"/><br>
 Start playing at: [retroachievements.org](https://retroachievements.org/)
 
 # Features:
