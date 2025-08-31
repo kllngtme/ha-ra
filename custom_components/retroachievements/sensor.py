@@ -1,71 +1,99 @@
-from datetime import datetime, timedelta
 import logging
-import async_timeout
-import pytz
-from homeassistant.helpers.aiohttp_client import async_get_clientsession
+from datetime import datetime, timedelta, timezone
 from homeassistant.helpers.entity import Entity
-from .const import DOMAIN, CONF_USERNAME, CONF_API_KEY
+from homeassistant.util import Throttle
+import requests
+
+from .const import CONF_USERNAME, CONF_API_KEY, CONF_NUM_GAMES
 
 _LOGGER = logging.getLogger(__name__)
-SCAN_INTERVAL = timedelta(minutes=5)
-BASE_URL = "https://retroachievements.org/API"
-IMG_BASE = "https://retroachievements.org"  # prepend for images
 
-
-def convert_to_local(utc_string, hass):
-    """Convert RA UTC timestamps to HA's configured timezone."""
-    try:
-        dt_utc = datetime.strptime(utc_string, "%Y-%m-%d %H:%M:%S")
-        dt_utc = pytz.utc.localize(dt_utc)
-        local_tz = pytz.timezone(hass.config.time_zone)
-        return dt_utc.astimezone(local_tz).strftime("%Y-%m-%d %I:%M:%S %p")
-    except Exception as e:
-        _LOGGER.error("Time conversion error: %s", e)
-        return utc_string
-
+MIN_TIME_BETWEEN_UPDATES = timedelta(seconds=60)
+IMG_BASE = "https://retroachievements.org"
+BASE_API = "https://retroachievements.org/API"
 
 def safe_int(value, default=0):
     try:
-        return int(value)
-    except (TypeError, ValueError):
+        return int(value) if value is not None else default
+    except (ValueError, TypeError):
         return default
 
+def _to_local_timestamp(raw: str) -> str | None:
+    if not raw:
+        return None
+    try:
+        dt = datetime.strptime(raw, "%Y-%m-%d %H:%M:%S").replace(tzinfo=timezone.utc)
+        return dt.astimezone().strftime("%Y-%m-%d %H:%M:%S")
+    except Exception:
+        pass
+    try:
+        dt = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        return dt.astimezone().strftime("%Y-%m-%d %H:%M:%S")
+    except Exception:
+        return raw
 
-async def async_setup_entry(hass, entry, async_add_entities):
-    """Set up RetroAchievements sensors for last 3 games."""
-    username = entry.data[CONF_USERNAME]
-    api_key = entry.data[CONF_API_KEY]
-    session = async_get_clientsession(hass)
-
-    async_add_entities([
-    RetroAchievementsSensor(session, username, api_key, i, hass) for i in range(3)
-] + [
-    RetroAchievementsUserSummarySensor(session, username, api_key, hass),
-    RetroAchievementsGlobalStatsSensor(session, username, api_key, hass),
-], True)
-
- 
-
-
-class RetroAchievementsSensor(Entity):
-    """Representation of a RetroAchievements recent game sensor."""
-
-    def __init__(self, session, username, api_key, index, hass):
-        self._session = session
+class RetroAchievementsData:
+    def __init__(self, username, api_key, num_games):
         self._username = username
         self._api_key = api_key
-        self._index = index
-        self.hass = hass
+        self._num_games = num_games
+        self.data = {}
+
+    @Throttle(MIN_TIME_BETWEEN_UPDATES)
+    def update(self):
+        try:
+            # --- User summary ---
+            summary_url = f"{BASE_API}/API_GetUserSummary.php?z={self._username}&y={self._api_key}&u={self._username}"
+            summary_resp = requests.get(summary_url, timeout=20)
+            summary_resp.raise_for_status()
+            self.data["summary"] = summary_resp.json()
+
+            # --- Recently played games ---
+            recent_url = f"{BASE_API}/API_GetUserRecentlyPlayedGames.php?z={self._username}&y={self._api_key}&u={self._username}&c=15"
+            recent_resp = requests.get(recent_url, timeout=20)
+            recent_resp.raise_for_status()
+            recent = recent_resp.json()
+            if not isinstance(recent, list):
+                _LOGGER.debug("Recent games payload not a list: %s", recent)
+                recent = []
+
+            # Sort by LastPlayed desc and keep only requested number
+            recent_sorted = sorted(recent, key=lambda g: g.get("LastPlayed", ""), reverse=True)
+            recent_sorted = recent_sorted[:self._num_games]
+
+            # Fetch full game info for each recent game
+            for game in recent_sorted:
+                game_id = game.get("GameID")
+                if game_id:
+                    try:
+                        full_url = f"{BASE_API}/API_GetGame.php?i={game_id}&y={self._api_key}"
+                        full_resp = requests.get(full_url, timeout=20)
+                        full_resp.raise_for_status()
+                        full_game = full_resp.json()
+                        # Merge full game info into game dict
+                        if isinstance(full_game, dict):
+                            game.update(full_game)
+                    except Exception as e:
+                        _LOGGER.debug("Failed to fetch full game info for %s: %s", game.get("Title"), e)
+
+            self.data["recent_games"] = recent_sorted
+            self.data["active_game"] = recent_sorted[0] if recent_sorted else None
+
+        except Exception as e:
+            _LOGGER.error("Error updating RetroAchievements data: %s", e)
+
+
+class RetroAchievementsActiveGameSensor(Entity):
+    def __init__(self, ra_data):
+        self._ra_data = ra_data
         self._state = None
         self._attrs = {}
 
     @property
     def name(self):
-        return f"RetroAchievements Game {self._index + 1}"
-
-    @property
-    def unique_id(self):
-        return f"retroachievements_game_{self._index}"
+        return "RetroAchievements Most Recently Played Game"
 
     @property
     def state(self):
@@ -75,58 +103,95 @@ class RetroAchievementsSensor(Entity):
     def extra_state_attributes(self):
         return self._attrs
 
-    async def async_update(self):
-        """Fetch data for this RetroAchievements game."""
-        try:
-            async with async_timeout.timeout(20):
-                url = (
-                    f"{BASE_URL}/API_GetUserRecentlyPlayedGames.php"
-                    f"?z={self._username}&y={self._api_key}&u={self._username}&c=3"
-                )
-                async with self._session.get(url) as resp:
-                    games = await resp.json(content_type=None)
-
-            if not games or self._index >= len(games):
-                _LOGGER.debug("No game at index %s for user %s", self._index, self._username)
-                return
-
-            game = games[self._index]
+    def update(self):
+        self._ra_data.update()
+        game = self._ra_data.data.get("active_game")
+        summary = self._ra_data.data.get("summary") or {}
+        if game:
+            game_id = game.get("GameID")
             last_played_raw = game.get("LastPlayed")
-            last_played_local = convert_to_local(last_played_raw, self.hass) if last_played_raw else None
+            last_played_local = _to_local_timestamp(last_played_raw)
 
-            # State: Game title
             self._state = game.get("Title", "Unknown Game")
-
-            # Attributes
             self._attrs = {
                 "console": game.get("ConsoleName", "Unknown"),
-                "last_played_local": last_played_local or "N/A",
+                "rich_presence": summary.get("RichPresenceMsg"),
+                "last_played_local": last_played_local,
                 "achievements_total": safe_int(game.get("AchievementsTotal")),
                 "achievements_unlocked": safe_int(game.get("NumAchieved")),
                 "total_achievements": safe_int(game.get("NumPossibleAchievements")),
                 "score_achieved": safe_int(game.get("ScoreAchieved")),
                 "possible_score": safe_int(game.get("PossibleScore")),
-                # Media assets
+                "url": f"https://retroachievements.org/game/{game_id}" if game_id else None,
+                "developer": game.get("Developer") or "Unknown",
+                "genre": game.get("Genre") or "Unknown",
+                "released": game.get("Released") or "Unknown",
                 "icon": f"{IMG_BASE}{game.get('ImageIcon')}" if game.get("ImageIcon") else None,
+                "box_art": f"{IMG_BASE}{game.get('ImageBoxArt')}" if game.get("ImageBoxArt") else None,
                 "title_screen": f"{IMG_BASE}{game.get('ImageTitle')}" if game.get("ImageTitle") else None,
                 "in_game_image": f"{IMG_BASE}{game.get('ImageIngame')}" if game.get("ImageIngame") else None,
-                "box_art": f"{IMG_BASE}{game.get('ImageBoxArt')}" if game.get("ImageBoxArt") else None,
-                # Raw RA timestamp (for debugging)
                 "last_played_utc": last_played_raw,
-                "game_id": game.get("GameID"),
             }
+        else:
+            self._state = "No Game"
+            self._attrs = {}
 
-        except Exception as e:
-            _LOGGER.error("Error fetching RetroAchievements data: %s", e)
+
+class RetroAchievementsRecentGameSensor(Entity):
+    def __init__(self, ra_data, index):
+        self._ra_data = ra_data
+        self._index = index
+        self._state = None
+        self._attrs = {}
+
+    @property
+    def name(self):
+        return f"RetroAchievements Last Played Game {self._index + 1}"
+
+    @property
+    def state(self):
+        return self._state
+
+    @property
+    def extra_state_attributes(self):
+        return self._attrs
+
+    def update(self):
+        self._ra_data.update()
+        games = self._ra_data.data.get("recent_games", [])
+        if len(games) > self._index:
+            game = games[self._index]
+            game_id = game.get("GameID")
+            last_played_raw = game.get("LastPlayed")
+            last_played_local = _to_local_timestamp(last_played_raw)
+
+            self._state = game.get("Title", "Unknown Game")
+            self._attrs = {
+                "console": game.get("ConsoleName", "Unknown"),
+                "last_played_local": last_played_local,
+                "achievements_total": safe_int(game.get("AchievementsTotal")),
+                "achievements_unlocked": safe_int(game.get("NumAchieved")),
+                "total_achievements": safe_int(game.get("NumPossibleAchievements")),
+                "score_achieved": safe_int(game.get("ScoreAchieved")),
+                "possible_score": safe_int(game.get("PossibleScore")),
+                "url": f"https://retroachievements.org/game/{game_id}" if game_id else None,
+                "developer": game.get("Developer") or "Unknown",
+                "genre": game.get("Genre") or "Unknown",
+                "released": game.get("Released") or "Unknown",
+                "icon": f"{IMG_BASE}{game.get('ImageIcon')}" if game.get("ImageIcon") else None,
+                "box_art": f"{IMG_BASE}{game.get('ImageBoxArt')}" if game.get("ImageBoxArt") else None,
+                "title_screen": f"{IMG_BASE}{game.get('ImageTitle')}" if game.get("ImageTitle") else None,
+                "in_game_image": f"{IMG_BASE}{game.get('ImageIngame')}" if game.get("ImageIngame") else None,
+                "last_played_utc": last_played_raw,
+            }
+        else:
+            self._state = "Unavailable"
+            self._attrs = {}
+
 
 class RetroAchievementsUserSummarySensor(Entity):
-    """Sensor for overall RetroAchievements user summary."""
-
-    def __init__(self, session, username, api_key, hass):
-        self._session = session
-        self._username = username
-        self._api_key = api_key
-        self.hass = hass
+    def __init__(self, ra_data):
+        self._ra_data = ra_data
         self._state = None
         self._attrs = {}
 
@@ -135,10 +200,6 @@ class RetroAchievementsUserSummarySensor(Entity):
         return "RetroAchievements User Summary"
 
     @property
-    def unique_id(self):
-        return f"retroachievements_user_summary_{self._username}"
-
-    @property
     def state(self):
         return self._state
 
@@ -146,119 +207,71 @@ class RetroAchievementsUserSummarySensor(Entity):
     def extra_state_attributes(self):
         return self._attrs
 
-    async def async_update(self):
-        try:
-            async with async_timeout.timeout(20):
-                url = (
-                    f"{BASE_URL}/API_GetUserSummary.php"
-                    f"?z={self._username}&y={self._api_key}&u={self._username}"
-                )
-                async with self._session.get(url) as resp:
-                    data = await resp.json(content_type=None)
+    def update(self):
+        self._ra_data.update()
+        data = self._ra_data.data.get("summary") or {}
+        if data:
+            self._state = data.get("User", self._ra_data._username)
 
-            _LOGGER.debug("User summary response: %s", data)
-
-            if not data or "User" not in data:
-                self._state = "Unavailable"
-                self._attrs = {}
-                return
-
-            # Always set state to the username
-            self._state = data.get("User", self._username)
-
-            # Parse awarded achievements (may be empty)
             awards = []
-            if "Awarded" in data and isinstance(data["Awarded"], dict):
-                for game_id, award in data["Awarded"].items():
-                    awards.append({
-                        "game_id": game_id,
-                        "badge_url": f"https://retroachievements.org{award.get('BadgeURL')}" if award.get("BadgeURL") else None,
-                        "title": award.get("Title"),
-                        "type": award.get("AwardType"),
-                    })
+            awarded = data.get("Awarded")
+            if isinstance(awarded, dict):
+                for game_id, award in awarded.items():
+                    awards.append(
+                        {
+                            "game_id": game_id,
+                            "badge_url": f"{IMG_BASE}{award.get('BadgeURL')}"
+                            if award and award.get("BadgeURL")
+                            else None,
+                            "title": award.get("Title") if award else None,
+                            "type": award.get("AwardType") if award else None,
+                        }
+                    )
+            elif isinstance(awarded, list):
+                for award in awarded:
+                    awards.append(
+                        {
+                            "game_id": award.get("GameID") if isinstance(award, dict) else None,
+                            "badge_url": f"{IMG_BASE}{award.get('BadgeURL')}"
+                            if isinstance(award, dict) and award.get("BadgeURL")
+                            else None,
+                            "title": award.get("Title") if isinstance(award, dict) else None,
+                            "type": award.get("AwardType") if isinstance(award, dict) else None,
+                        }
+                    )
 
             self._attrs = {
-                "points": data.get("TotalPoints", 0),
-                "softcore_points": data.get("TotalSoftcorePoints", 0),
-                "true_points": data.get("TotalTruePoints", 0),
-                "rank": data.get("Rank") or "Unranked",
-                "profile_pic": f"https://retroachievements.org{data.get('UserPic')}" if data.get("UserPic") else None,
-                "motto": data.get("Motto"),
-                "status": data.get("Status"),
+                "username": data.get("User", self._ra_data._username),
                 "member_since": data.get("MemberSince"),
-                "recently_played_count": data.get("RecentlyPlayedCount", 0),
-                "awards": awards,
-                "rich_presence": data.get("RichPresenceMsg"),
-            }
-
-        except Exception as e:
-            _LOGGER.error("Error fetching RetroAchievements user summary: %s", e)
-            self._state = "Error"
-            self._attrs = {}
-
-class RetroAchievementsGlobalStatsSensor(Entity):
-    """Sensor for RetroAchievements global user stats."""
-
-    def __init__(self, session, username, api_key, hass):
-        self._session = session
-        self._username = username
-        self._api_key = api_key
-        self.hass = hass
-        self._state = None
-        self._attrs = {}
-
-    @property
-    def name(self):
-        return "RetroAchievements Global Stats"
-
-    @property
-    def unique_id(self):
-        return f"retroachievements_global_stats_{self._username}"
-
-    @property
-    def state(self):
-        # Use total points as the main state
-        return self._state
-
-    @property
-    def extra_state_attributes(self):
-        return self._attrs
-
-    async def async_update(self):
-        try:
-            async with async_timeout.timeout(20):
-                url = (
-                    f"{BASE_URL}/API_GetUserSummary.php"
-                    f"?z={self._username}&y={self._api_key}&u={self._username}"
-                )
-                async with self._session.get(url) as resp:
-                    data = await resp.json(content_type=None)
-
-            _LOGGER.debug("Global stats response: %s", data)
-
-            if not data or "User" not in data:
-                self._state = "Unavailable"
-                self._attrs = {}
-                return
-
-            self._state = data.get("TotalPoints", 0)
-
-            self._attrs = {
-                "username": data.get("User", self._username),
+                "motto": data.get("Motto"),
                 "rank": data.get("Rank") or "Unranked",
+                "total_ranked": data.get("TotalRanked", 0),
                 "total_points": data.get("TotalPoints", 0),
                 "softcore_points": data.get("TotalSoftcorePoints", 0),
                 "true_points": data.get("TotalTruePoints", 0),
-                "total_ranked": data.get("TotalRanked", 0),
-                "member_since": data.get("MemberSince"),
+                "awards": awards,
                 "status": data.get("Status"),
-                "motto": data.get("Motto"),
-                "rich_presence": data.get("RichPresenceMsg"),
-                "profile_pic": f"https://retroachievements.org{data.get('UserPic')}" if data.get("UserPic") else None,
-                "recently_played_count": data.get("RecentlyPlayedCount", 0),
+                "profile_pic": f"{IMG_BASE}{data.get('UserPic')}" if data.get("UserPic") else None,
+                "recently_played_count": safe_int(data.get("RecentlyPlayedCount", 0)),
             }
-
-        except Exception as e:
-            _LOGGER.error("Error fetching RetroAchievements global stats: %s", e)
-            self._state = "Error"
+        else:
+            self._state = "Unavailable"
             self._attrs = {}
+
+
+# ---- HA entry point ----
+async def async_setup_entry(hass, entry, async_add_entities):
+    username = entry.data[CONF_USERNAME]
+    api_key = entry.data[CONF_API_KEY]
+    num_games = entry.data.get(CONF_NUM_GAMES, 5)
+
+    ra_data = RetroAchievementsData(username, api_key, num_games)
+
+    sensors = [
+        RetroAchievementsActiveGameSensor(ra_data),
+        RetroAchievementsUserSummarySensor(ra_data),
+    ]
+    for i in range(1, num_games):
+        sensors.append(RetroAchievementsRecentGameSensor(ra_data, i))
+
+    async_add_entities(sensors, update_before_add=True)
