@@ -1,4 +1,4 @@
-# 🎮 HA-RA (Home Assistant + RetroAchievements)
+# 🕹️ HA-RA (Home Assistant + RetroAchievements)
 
 This is a **RetroAchievements integration for Home Assistant**.  
 Bring your gaming stats, history, and live activity right into your smart home setup.  
