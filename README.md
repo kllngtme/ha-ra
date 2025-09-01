@@ -1,44 +1,48 @@
-# HA-RA 
-This is a RetroAchievement Integration for Home Assistant.
+# 🎮 HA-RA (Home Assistant + RetroAchievements)
 
-<img width="256" height="256" alt="logo" src="https://github.com/user-attachments/assets/1192e0ad-14ff-40ec-bb83-3ce8af7d0de0"/><br>
-Start playing at: [retroachievements.org](https://retroachievements.org/)
+This is a **RetroAchievements integration for Home Assistant**.  
+Bring your gaming stats, history, and live activity right into your smart home setup.  
 
-# Features:
-This brings 5 entities to Home Assistant
+<img width="256" height="256" alt="logo" src="https://github.com/user-attachments/assets/1192e0ad-14ff-40ec-bb83-3ce8af7d0de0"/><br>  
 
-🔵RetroAchievements Game 1<br>
-🔵RetroAchievements Game 2<br>
-🔵RetroAchievements Game 3<br>
-🟡RetroAchievements User Summary<br>
-🟣RetroAchievements Global Stats
+Start playing at 👉 [retroachievements.org](https://retroachievements.org/)  
 
-# A sensor for the last 3 games played.<br><h3>You can pull the following attributes:</h3>
-🎮 console<br>
-🕒 last_played<br>
-🏆 achievements_total, achievements_unlocked, total_achievements<br>
-⭐ score_achieved, possible_score<br>
-🖼️ game icon<br>
-🖼️ title screen artwork<br>
-🖼️ gameplay screenshot<br>
-🖼️ full box art<br>
-🆔 game_id
+---
 
-# User Summary sensor attributes:<Br>
-🎮 Total Achievements (universal, across all games)<br>
-🏆 Total Points (core)<br>
-🟡 Softcore Points<br>
-🔵 True Points (hardcore weighting)<br>
-🥇 Rank<br>
-🧑 Member Since<br>
-💬 Rich Presence (your current in‑game message, if available)<br>
-🖼️ Profile Pic
+## ✨ Features  
+HA-RA creates **sensors** inside Home Assistant that let you track your RetroAchievements progress.  
+Currently, it provides:  
 
-# Global Stats sensor attributes:
-🧑 Username<br>
-🏆 Total Points (core)<br>
-🟡 Softcore Points<br>
-🔵 True Points (hardcore weighting)<br>
-🥇 Rank / Rank Total<br>
-🧑 Member Since<br>
-💬 Rich Presence (your current in-game message, if available)
+- 🎯 **15 Game Sensors** — The last 15 games you’ve played  (user selectable. Set to 3 games by default. Max 15, like the website)
+- 👤 **User Summary Sensor** — Your global stats, profile, and rich presence  
+- 🌍 **Global Stats Sensor** — Site-wide leaderboards & totals  
+
+---
+
+### 🎮 Game Sensors
+- **15 most recently played games** are available as entities
+- Each game sensor includes the following attributes:
+  - 🖼️ Artwork (icon, box art, title screen, gameplay screenshot)  
+  - 🎮 Console  
+  - 🕒 Last Played (local + UTC)  
+  - 🏆 Achievements (total, unlocked, progress)  
+  - ⭐ Score (achieved + possible)  
+  - 👨‍💻 Developer  
+  - 📚 Genre  
+  - 📅 Release Date  
+  - 🔗 Direct link to the game’s RetroAchievements page  
+  - 💬 Rich Presence (what you’re doing in-game, if supported)
+
+---
+
+### 🧑 User Summary Sensor
+Tracks your overall RetroAchievements account stats:
+- 🧑 Username
+- 🖼️ Profile Picture  
+- 📅 Member Since  
+- 💬 Motto
+- 🎮 Total Achievements  
+- 🏆 Total Points (core)  
+- 🟡 Softcore Points  
+- 🔵 True Points (hardcore weighted)  
+- 🥇 Rank / Total Ranked
