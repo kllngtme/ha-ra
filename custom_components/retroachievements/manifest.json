@@ -3,10 +3,10 @@
   "name": "RetroAchievements",
   "version": "0.2.0",
   "documentation": "https://github.com/kllngtme/ha-ra",
+  "issue_tracker": "https://github.com/kllngtme/ha-ra/issues",
   "requirements": [],
   "dependencies": [],
   "codeowners": ["@kllngtme"],
   "iot_class": "cloud_polling",
   "config_flow": true
 }
-
