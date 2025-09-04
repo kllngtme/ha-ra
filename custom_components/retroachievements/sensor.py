@@ -107,6 +107,7 @@ CONSOLE_ICON_MAP = {
     "Master System": "sms.png",
     "Nintendo 64": "n64.png",
     "Nintendo DS": "ds.png",
+    "Nintendo DSi": "dsi.png",
     "Nintendo 3DS": "3ds.png",
     "Wii": "wii.png",
     "Wii U": "wiiu.png",
@@ -318,3 +319,4 @@ async def async_setup_entry(hass, entry, async_add_entities):
         sensors.append(RetroAchievementsRecentGameSensor(ra_data, i))
 
     async_add_entities(sensors, update_before_add=True)
+
