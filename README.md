@@ -22,7 +22,7 @@ Currently, it provides:
 ### 🎮 Game Sensors
 - **15 most recently played games** are available as entities
 - Each game sensor includes the following attributes:
-  - 🖼️ Artwork (icon, box art, title screen, gameplay screenshot)  
+  - 🖼️ Artwork (icon, box art, title screen, gameplay screenshot, console icon)  
   - 🎮 Console  
   - 🕒 Last Played (local + UTC)  
   - 🏆 Achievements (total, unlocked, progress)  
