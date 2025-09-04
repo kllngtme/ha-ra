@@ -33,7 +33,7 @@ def _to_local_timestamp(raw: str) -> str | None:
         return dt.astimezone().strftime("%Y-%m-%d %H:%M:%S")
     except Exception:
         return raw
-
+        
 class RetroAchievementsData:
     def __init__(self, username, api_key, num_games):
         self._username = username
@@ -74,6 +74,10 @@ class RetroAchievementsData:
                         full_game = full_resp.json()
                         # Merge full game info into game dict
                         if isinstance(full_game, dict):
+                            # Preserve image fields if missing in API_GetGame
+                            for key in ["ImageIcon", "ImageBoxArt", "ImageTitle", "ImageIngame"]:
+                                if key in game and key not in full_game:
+                                    full_game[key] = game[key]
                             game.update(full_game)
                     except Exception as e:
                         _LOGGER.debug("Failed to fetch full game info for %s: %s", game.get("Title"), e)
@@ -84,6 +88,41 @@ class RetroAchievementsData:
         except Exception as e:
             _LOGGER.error("Error updating RetroAchievements data: %s", e)
 
+# ---- Console icon mapping ----
+CONSOLE_ICON_MAP = {
+    "Amiga": "amiga.png",
+    "Arcade": "arc.png",
+    "Atari 2600": "2600.png",
+    "Atari 7800": "7800.png",
+    "Atari Lynx": "lynx.png",
+    "DOS": "dos.png",
+    "NES/Famicom": "nes.png",
+    "SNES/Super Famicom": "snes.png",
+    "Game Boy": "gb.png",
+    "Game Boy Color": "gbc.png",
+    "Game Boy Advance": "gba.png",
+    "GameCube": "gc.png",
+    "Game Gear": "gamegear.png",
+    "Mega Drive/Genesis": "md.png",
+    "Master System": "sms.png",
+    "Nintendo 64": "n64.png",
+    "Nintendo DS": "ds.png",
+    "Nintendo 3DS": "3ds.png",
+    "Wii": "wii.png",
+    "Wii U": "wiiu.png",
+    "PlayStation": "ps1.png",
+    "PlayStation 2": "ps2.png",
+    "PlayStation Portable": "psp.png",
+    "Xbox": "xbox.png",
+    "Sega Saturn": "sat.png",
+    "Dreamcast": "dc.png",
+    # You can get the full list of activesystems by doing https://retroachievements.org/API/API_GetConsoleIDs.php?z=<username>&y=<api_key>&a=1&g=1
+}
+def get_console_icon(console_name: str) -> str | None:
+    """Return full URL for console icon if known."""
+    if console_name in CONSOLE_ICON_MAP:
+        return f"https://static.retroachievements.org/assets/images/system/{CONSOLE_ICON_MAP[console_name]}"
+    return None    
 
 class RetroAchievementsActiveGameSensor(Entity):
     def __init__(self, ra_data):
@@ -111,10 +150,10 @@ class RetroAchievementsActiveGameSensor(Entity):
             game_id = game.get("GameID")
             last_played_raw = game.get("LastPlayed")
             last_played_local = _to_local_timestamp(last_played_raw)
+            console_name = game.get("ConsoleName", "Unknown")
 
             self._state = game.get("Title", "Unknown Game")
             self._attrs = {
-                "console": game.get("ConsoleName", "Unknown"),
                 "rich_presence": summary.get("RichPresenceMsg"),
                 "last_played_local": last_played_local,
                 "achievements_total": safe_int(game.get("AchievementsTotal")),
@@ -122,6 +161,8 @@ class RetroAchievementsActiveGameSensor(Entity):
                 "total_achievements": safe_int(game.get("NumPossibleAchievements")),
                 "score_achieved": safe_int(game.get("ScoreAchieved")),
                 "possible_score": safe_int(game.get("PossibleScore")),
+                "console": game.get("ConsoleName", "Unknown"),
+                "console_icon": get_console_icon(console_name),
                 "url": f"https://retroachievements.org/game/{game_id}" if game_id else None,
                 "developer": game.get("Developer") or "Unknown",
                 "genre": game.get("Genre") or "Unknown",
@@ -164,16 +205,18 @@ class RetroAchievementsRecentGameSensor(Entity):
             game_id = game.get("GameID")
             last_played_raw = game.get("LastPlayed")
             last_played_local = _to_local_timestamp(last_played_raw)
+            console_name = game.get("ConsoleName", "Unknown")
 
             self._state = game.get("Title", "Unknown Game")
             self._attrs = {
-                "console": game.get("ConsoleName", "Unknown"),
                 "last_played_local": last_played_local,
                 "achievements_total": safe_int(game.get("AchievementsTotal")),
                 "achievements_unlocked": safe_int(game.get("NumAchieved")),
                 "total_achievements": safe_int(game.get("NumPossibleAchievements")),
                 "score_achieved": safe_int(game.get("ScoreAchieved")),
                 "possible_score": safe_int(game.get("PossibleScore")),
+                "console": game.get("ConsoleName", "Unknown"),
+                "console_icon": get_console_icon(console_name),
                 "url": f"https://retroachievements.org/game/{game_id}" if game_id else None,
                 "developer": game.get("Developer") or "Unknown",
                 "genre": game.get("Genre") or "Unknown",
