@@ -15,7 +15,8 @@ Currently, it provides:
 ### 🧑 User Summary Sensor
 Tracks your overall RetroAchievements account stats:
 - 🧑 Username
-- 🖼️ Profile Picture  
+- 🖼️ Profile Picture
+- 👤 Online Status 
 - 📅 Member Since  
 - 💬 Motto
 - 🎮 Total Achievements  
@@ -37,8 +38,48 @@ Tracks your overall RetroAchievements account stats:
   - 📅 Release Date  
   - 🔗 Direct link to the game’s RetroAchievements page  
   - 💬 Rich Presence (What you're doing currently in Active/Most recently played game)
+  - 🏅 Last 5 earned badges per game (icon, link, date earned)
 
 # Lovelace Card Example:
+This is still a work in progress but figured it would be good to get something out there for now.
 ```
+type: horizontal-stack
+cards:
+  - type: markdown
+    content: >-
+      {% set g1 = states.sensor.retroachievements_most_recently_played_game %}
 
+      <a href="{{ g1.attributes.url }}">
+        <img src="{{ g1.attributes.box_art }}" width="125">
+      </a>
+
+      {% if g1.attributes.recent_badges %} <br> {% for badge in
+      g1.attributes.recent_badges %}
+        <a href="{{ badge.achievement_url }}" target="_blank">
+          <img src="{{ badge.badge_url }}" width="40" style="margin: 2px;">
+        </a>
+      {% endfor %} {% endif %}
+    text_only: true
+  - type: markdown
+    content: >-
+      {% set g1 = states.sensor.retroachievements_most_recently_played_game
+      %}<h2><img src="{{ g1.attributes.console_icon }}" width="25"> {{
+      g1.state}}</h2>
+
+
+      <small><font color=lightgreen> {{ g1.attributes.rich_presence
+      }}</font></small>
+
+
+      🏆 Achievements: **{{ g1.attributes.achievements_unlocked }}/{{
+      g1.attributes.total_achievements }}**
+
+      ⭐ Score: **{{ g1.attributes.score_achieved }}/{{
+      g1.attributes.possible_score }}**
+
+      🕒 Last Played: **{{ as_timestamp(g1.attributes.last_played_local) |
+      timestamp_custom("%b %d, %Y %I:%M %p") }}**
+    text_only: true
 ```
+<img width="403" height="269" alt="image" src="https://github.com/user-attachments/assets/cf29b482-f8a4-4191-b6f8-b4bffb2c4531" />
+
