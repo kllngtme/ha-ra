@@ -107,7 +107,6 @@ CONSOLE_ICON_MAP = {
     "Master System": "sms.png",
     "Nintendo 64": "n64.png",
     "Nintendo DS": "ds.png",
-    "Nintendo DSi": "dsi.png",
     "Nintendo 3DS": "3ds.png",
     "Wii": "wii.png",
     "Wii U": "wiiu.png",
@@ -117,7 +116,7 @@ CONSOLE_ICON_MAP = {
     "Xbox": "xbox.png",
     "Sega Saturn": "sat.png",
     "Dreamcast": "dc.png",
-    # You can get the full list of activesystems by doing https://retroachievements.org/API/API_GetConsoleIDs.php?z=<username>&y=<api_key>&a=1&g=1
+    # You can get the full list of systems by doing https://retroachievements.org/API/API_GetConsoleIDs.php?z=<username>&y=<api_key>&a=1&g=1
 }
 def get_console_icon(console_name: str) -> str | None:
     """Return full URL for console icon if known."""
@@ -254,6 +253,27 @@ class RetroAchievementsUserSummarySensor(Entity):
     def update(self):
         self._ra_data.update()
         data = self._ra_data.data.get("summary") or {}
+        active_game = self._ra_data.data.get("active_game")
+        now = datetime.now().astimezone()
+
+        status = "Offline"
+        last_online = None
+
+        # Infer "online" status from most recently played game
+        if active_game:
+            last_played_raw = active_game.get("LastPlayed")
+            last_played_local_str = _to_local_timestamp(last_played_raw)
+            if last_played_local_str:
+                try:
+                    last_played_dt = datetime.strptime(
+                        last_played_local_str, "%Y-%m-%d %H:%M:%S"
+                    ).astimezone()
+                    last_online = last_played_dt.strftime("%Y-%m-%d %H:%M")
+                    if (now - last_played_dt) <= timedelta(minutes=5):
+                        status = "Online"
+                except Exception:
+                    pass
+
         if data:
             self._state = data.get("User", self._ra_data._username)
 
@@ -294,7 +314,8 @@ class RetroAchievementsUserSummarySensor(Entity):
                 "softcore_points": data.get("TotalSoftcorePoints", 0),
                 "true_points": data.get("TotalTruePoints", 0),
                 "awards": awards,
-                "status": data.get("Status"),
+                "status": status,
+                "last_online": last_online,
                 "profile_pic": f"{IMG_BASE}{data.get('UserPic')}" if data.get("UserPic") else None,
                 "recently_played_count": safe_int(data.get("RecentlyPlayedCount", 0)),
             }
@@ -319,4 +340,3 @@ async def async_setup_entry(hass, entry, async_add_entities):
         sensors.append(RetroAchievementsRecentGameSensor(ra_data, i))
 
     async_add_entities(sensors, update_before_add=True)
-
