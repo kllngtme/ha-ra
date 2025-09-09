@@ -87,6 +87,38 @@ class RetroAchievementsData:
 
         except Exception as e:
             _LOGGER.error("Error updating RetroAchievements data: %s", e)
+            
+def fetch_recent_badges(username: str, api_key: str, game_id: int):
+    """Fetch latest 5 unlocked badges for a game with icon + achievement link."""
+    try:
+        url = f"{BASE_API}/API_GetGameInfoAndUserProgress.php?g={game_id}&u={username}&y={api_key}"
+        resp = requests.get(url, timeout=20)
+        resp.raise_for_status()
+        data = resp.json()
+        achievements = data.get("Achievements", {})
+
+        unlocked = []
+        for ach_id, ach in achievements.items():
+            date_earned = ach.get("DateEarned")
+            badge_name = ach.get("BadgeName")
+            if date_earned and badge_name:
+                badge_img_url = f"{IMG_BASE}/Badge/{badge_name}.png"
+                achievement_url = f"https://retroachievements.org/Achievement/{ach_id}"
+                unlocked.append(
+                    {
+                        "title": ach.get("Title"),
+                        "badge_url": badge_img_url,
+                        "achievement_url": achievement_url,
+                        "date": date_earned,
+                    }
+                )
+
+        unlocked.sort(key=lambda x: x["date"], reverse=True)
+        return unlocked[:5]
+
+    except Exception as e:
+        _LOGGER.debug("Failed to fetch badges for game %s: %s", game_id, e)
+        return []
 
 # ---- Console icon mapping ----
 CONSOLE_ICON_MAP = {
@@ -173,6 +205,10 @@ class RetroAchievementsActiveGameSensor(Entity):
                 "in_game_image": f"{IMG_BASE}{game.get('ImageIngame')}" if game.get("ImageIngame") else None,
                 "last_played_utc": last_played_raw,
             }
+                        
+            self._attrs["recent_badges"] = fetch_recent_badges(
+                self._ra_data._username, self._ra_data._api_key, game_id
+            )
         else:
             self._state = "No Game"
             self._attrs = {}
@@ -227,6 +263,9 @@ class RetroAchievementsRecentGameSensor(Entity):
                 "in_game_image": f"{IMG_BASE}{game.get('ImageIngame')}" if game.get("ImageIngame") else None,
                 "last_played_utc": last_played_raw,
             }
+            self._attrs["recent_badges"] = fetch_recent_badges(
+                self._ra_data._username, self._ra_data._api_key, game_id
+            )
         else:
             self._state = "Unavailable"
             self._attrs = {}
