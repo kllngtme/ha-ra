@@ -33,7 +33,7 @@ def _to_local_timestamp(raw: str) -> str | None:
         return dt.astimezone().strftime("%Y-%m-%d %H:%M:%S")
     except Exception:
         return raw
-        
+
 class RetroAchievementsData:
     def __init__(self, username, api_key, num_games):
         self._username = username
@@ -63,6 +63,16 @@ class RetroAchievementsData:
             recent_sorted = sorted(recent, key=lambda g: g.get("LastPlayed", ""), reverse=True)
             recent_sorted = recent_sorted[:self._num_games]
 
+            # --- ADDED: Fetch recent achievements in bulk for a lookback period (e.g., 24 hours = 1440 minutes) ---
+            # This is more efficient than a separate call for each game and is needed for the recent badges feature.
+            # Using 'm=1440' looks back at achievements unlocked in the last 24 hours.
+            recent_ach_url = f"{BASE_API}/API_GetUserRecentAchievements.php?u={self._username}&y={self._api_key}&z={self._username}&m=1440"
+            recent_ach_resp = requests.get(recent_ach_url, timeout=20)
+            recent_ach_resp.raise_for_status()
+            all_recent_achievements = recent_ach_resp.json()
+            if not isinstance(all_recent_achievements, list):
+                all_recent_achievements = []
+
             # Fetch full game info for each recent game
             for game in recent_sorted:
                 game_id = game.get("GameID")
@@ -79,8 +89,17 @@ class RetroAchievementsData:
                                 if key in game and key not in full_game:
                                     full_game[key] = game[key]
                             game.update(full_game)
+
+                        # --- ADDED: Filter the bulk achievement list for this game and add to the game data ---
+                        # We only want to show achievements for the specific game being played.
+                        game_achievements = [
+                            ach for ach in all_recent_achievements if safe_int(ach.get("GameID")) == safe_int(game_id)
+                        ]
+                        # Only show the top 5 achievements to keep the card clean.
+                        game["recent_badges"] = game_achievements[:5]
+                        
                     except Exception as e:
-                        _LOGGER.debug("Failed to fetch full game info for %s: %s", game.get("Title"), e)
+                        _LOGGER.debug("Failed to fetch full game info or achievements for %s: %s", game.get("Title"), e)
 
             self.data["recent_games"] = recent_sorted
             self.data["active_game"] = recent_sorted[0] if recent_sorted else None
@@ -122,7 +141,7 @@ def get_console_icon(console_name: str) -> str | None:
     """Return full URL for console icon if known."""
     if console_name in CONSOLE_ICON_MAP:
         return f"https://static.retroachievements.org/assets/images/system/{CONSOLE_ICON_MAP[console_name]}"
-    return None    
+    return None
 
 class RetroAchievementsActiveGameSensor(Entity):
     def __init__(self, ra_data):
@@ -151,6 +170,16 @@ class RetroAchievementsActiveGameSensor(Entity):
             last_played_raw = game.get("LastPlayed")
             last_played_local = _to_local_timestamp(last_played_raw)
             console_name = game.get("ConsoleName", "Unknown")
+            
+            # --- UPDATED: Create the list for recent badges based on the new data fetched in update() ---
+            recent_badges = []
+            if 'recent_badges' in game and isinstance(game['recent_badges'], list):
+                for badge in game['recent_badges']:
+                    recent_badges.append({
+                        "badge_url": f"{IMG_BASE}{badge.get('BadgeURL')}" if badge.get("BadgeURL") else None,
+                        "achievement_url": f"https://retroachievements.org/achievement/{badge.get('AchievementID')}" if badge.get("AchievementID") else None,
+                        "unlocked_on": _to_local_timestamp(badge.get('Date'))
+                    })
 
             self._state = game.get("Title", "Unknown Game")
             self._attrs = {
@@ -172,6 +201,7 @@ class RetroAchievementsActiveGameSensor(Entity):
                 "title_screen": f"{IMG_BASE}{game.get('ImageTitle')}" if game.get("ImageTitle") else None,
                 "in_game_image": f"{IMG_BASE}{game.get('ImageIngame')}" if game.get("ImageIngame") else None,
                 "last_played_utc": last_played_raw,
+                "recent_badges": recent_badges # New attribute to be added
             }
         else:
             self._state = "No Game"
@@ -322,7 +352,6 @@ class RetroAchievementsUserSummarySensor(Entity):
         else:
             self._state = "Unavailable"
             self._attrs = {}
-
 
 # ---- HA entry point ----
 async def async_setup_entry(hass, entry, async_add_entities):
