@@ -33,7 +33,8 @@ def _to_local_timestamp(raw: str) -> str | None:
         return dt.astimezone().strftime("%Y-%m-%d %H:%M:%S")
     except Exception:
         return raw
-        
+
+
 class RetroAchievementsData:
     def __init__(self, username, api_key, num_games):
         self._username = username
@@ -63,62 +64,66 @@ class RetroAchievementsData:
             recent_sorted = sorted(recent, key=lambda g: g.get("LastPlayed", ""), reverse=True)
             recent_sorted = recent_sorted[:self._num_games]
 
-            # Fetch full game info for each recent game
+            # Fetch full game info, badges, and completion (single API call per game)
             for game in recent_sorted:
                 game_id = game.get("GameID")
-                if game_id:
-                    try:
-                        full_url = f"{BASE_API}/API_GetGame.php?i={game_id}&y={self._api_key}"
-                        full_resp = requests.get(full_url, timeout=20)
-                        full_resp.raise_for_status()
-                        full_game = full_resp.json()
-                        # Merge full game info into game dict
-                        if isinstance(full_game, dict):
-                            # Preserve image fields if missing in API_GetGame
-                            for key in ["ImageIcon", "ImageBoxArt", "ImageTitle", "ImageIngame"]:
-                                if key in game and key not in full_game:
-                                    full_game[key] = game[key]
-                            game.update(full_game)
-                    except Exception as e:
-                        _LOGGER.debug("Failed to fetch full game info for %s: %s", game.get("Title"), e)
+                if not game_id:
+                    continue
+                try:
+                    # Fetch full game info
+                    full_url = f"{BASE_API}/API_GetGame.php?i={game_id}&y={self._api_key}"
+                    full_resp = requests.get(full_url, timeout=20)
+                    full_resp.raise_for_status()
+                    full_game = full_resp.json()
+                    if isinstance(full_game, dict):
+                        for key in ["ImageIcon", "ImageBoxArt", "ImageTitle", "ImageIngame"]:
+                            if key in game and key not in full_game:
+                                full_game[key] = game[key]
+                        game.update(full_game)
+                except Exception as e:
+                    _LOGGER.debug("Failed to fetch full game info for %s: %s", game.get("Title"), e)
+
+                try:
+                    # Fetch badges and user completion once here (single API call)
+                    badge_url = f"{BASE_API}/API_GetGameInfoAndUserProgress.php?g={game_id}&u={self._username}&y={self._api_key}"
+                    badge_resp = requests.get(badge_url, timeout=20)
+                    badge_resp.raise_for_status()
+                    badge_data = badge_resp.json()
+
+                    # Extract recent badges
+                    achievements = badge_data.get("Achievements", {})
+                    unlocked = []
+                    for ach_id, ach in achievements.items():
+                        date_earned = ach.get("DateEarned")
+                        badge_name = ach.get("BadgeName")
+                        if date_earned and badge_name:
+                            unlocked.append(
+                                {
+                                    "title": ach.get("Title"),
+                                    "badge_url": f"{IMG_BASE}/Badge/{badge_name}.png",
+                                    "achievement_url": f"https://retroachievements.org/Achievement/{ach_id}",
+                                    "date": date_earned,
+                                }
+                            )
+                    unlocked.sort(key=lambda x: x["date"], reverse=True)
+                    game["recent_badges"] = unlocked[:5]
+
+                    # Add user completion percentages
+                    game["completion_percentage"] = badge_data.get("UserCompletion", "unknown")
+                    game["completion_percentage_hardcore"] = badge_data.get("UserCompletionHardcore", "unknown")
+
+                except Exception as e:
+                    _LOGGER.debug("Failed to fetch badges or completion for %s: %s", game.get("Title"), e)
+                    game["recent_badges"] = []
+                    game["completion_percentage"] = "unknown"
+                    game["completion_percentage_hardcore"] = "unknown"
 
             self.data["recent_games"] = recent_sorted
             self.data["active_game"] = recent_sorted[0] if recent_sorted else None
 
         except Exception as e:
             _LOGGER.error("Error updating RetroAchievements data: %s", e)
-            
-def fetch_recent_badges(username: str, api_key: str, game_id: int):
-    """Fetch latest 5 unlocked badges for a game with icon + achievement link."""
-    try:
-        url = f"{BASE_API}/API_GetGameInfoAndUserProgress.php?g={game_id}&u={username}&y={api_key}"
-        resp = requests.get(url, timeout=20)
-        resp.raise_for_status()
-        data = resp.json()
-        achievements = data.get("Achievements", {})
 
-        unlocked = []
-        for ach_id, ach in achievements.items():
-            date_earned = ach.get("DateEarned")
-            badge_name = ach.get("BadgeName")
-            if date_earned and badge_name:
-                badge_img_url = f"{IMG_BASE}/Badge/{badge_name}.png"
-                achievement_url = f"https://retroachievements.org/Achievement/{ach_id}"
-                unlocked.append(
-                    {
-                        "title": ach.get("Title"),
-                        "badge_url": badge_img_url,
-                        "achievement_url": achievement_url,
-                        "date": date_earned,
-                    }
-                )
-
-        unlocked.sort(key=lambda x: x["date"], reverse=True)
-        return unlocked[:5]
-
-    except Exception as e:
-        _LOGGER.debug("Failed to fetch badges for game %s: %s", game_id, e)
-        return []
 
 # ---- Console icon mapping ----
 CONSOLE_ICON_MAP = {
@@ -148,13 +153,12 @@ CONSOLE_ICON_MAP = {
     "Xbox": "xbox.png",
     "Sega Saturn": "sat.png",
     "Dreamcast": "dc.png",
-    # You can get the full list of systems by doing https://retroachievements.org/API/API_GetConsoleIDs.php?z=<username>&y=<api_key>&a=1&g=1
 }
 def get_console_icon(console_name: str) -> str | None:
-    """Return full URL for console icon if known."""
     if console_name in CONSOLE_ICON_MAP:
         return f"https://static.retroachievements.org/assets/images/system/{CONSOLE_ICON_MAP[console_name]}"
-    return None    
+    return None
+
 
 class RetroAchievementsActiveGameSensor(Entity):
     def __init__(self, ra_data):
@@ -204,11 +208,10 @@ class RetroAchievementsActiveGameSensor(Entity):
                 "title_screen": f"{IMG_BASE}{game.get('ImageTitle')}" if game.get("ImageTitle") else None,
                 "in_game_image": f"{IMG_BASE}{game.get('ImageIngame')}" if game.get("ImageIngame") else None,
                 "last_played_utc": last_played_raw,
+                "recent_badges": game.get("recent_badges", []),
+                "completion_percentage": game.get("completion_percentage", "unknown"),
+                "completion_percentage_hardcore": game.get("completion_percentage_hardcore", "unknown"),
             }
-                        
-            self._attrs["recent_badges"] = fetch_recent_badges(
-                self._ra_data._username, self._ra_data._api_key, game_id
-            )
         else:
             self._state = "No Game"
             self._attrs = {}
@@ -262,10 +265,10 @@ class RetroAchievementsRecentGameSensor(Entity):
                 "title_screen": f"{IMG_BASE}{game.get('ImageTitle')}" if game.get("ImageTitle") else None,
                 "in_game_image": f"{IMG_BASE}{game.get('ImageIngame')}" if game.get("ImageIngame") else None,
                 "last_played_utc": last_played_raw,
+                "recent_badges": game.get("recent_badges", []),
+                "completion_percentage": game.get("completion_percentage", "unknown"),
+                "completion_percentage_hardcore": game.get("completion_percentage_hardcore", "unknown"),
             }
-            self._attrs["recent_badges"] = fetch_recent_badges(
-                self._ra_data._username, self._ra_data._api_key, game_id
-            )
         else:
             self._state = "Unavailable"
             self._attrs = {}
@@ -298,7 +301,6 @@ class RetroAchievementsUserSummarySensor(Entity):
         status = "Offline"
         last_online = None
 
-        # Infer "online" status from most recently played game
         if active_game:
             last_played_raw = active_game.get("LastPlayed")
             last_played_local_str = _to_local_timestamp(last_played_raw)
@@ -323,9 +325,7 @@ class RetroAchievementsUserSummarySensor(Entity):
                     awards.append(
                         {
                             "game_id": game_id,
-                            "badge_url": f"{IMG_BASE}{award.get('BadgeURL')}"
-                            if award and award.get("BadgeURL")
-                            else None,
+                            "badge_url": f"{IMG_BASE}{award.get('BadgeURL')}" if award and award.get("BadgeURL") else None,
                             "title": award.get("Title") if award else None,
                             "type": award.get("AwardType") if award else None,
                         }
@@ -335,9 +335,7 @@ class RetroAchievementsUserSummarySensor(Entity):
                     awards.append(
                         {
                             "game_id": award.get("GameID") if isinstance(award, dict) else None,
-                            "badge_url": f"{IMG_BASE}{award.get('BadgeURL')}"
-                            if isinstance(award, dict) and award.get("BadgeURL")
-                            else None,
+                            "badge_url": f"{IMG_BASE}{award.get("BadgeURL")}" if isinstance(award, dict) and award.get("BadgeURL") else None,
                             "title": award.get("Title") if isinstance(award, dict) else None,
                             "type": award.get("AwardType") if isinstance(award, dict) else None,
                         }
@@ -355,7 +353,7 @@ class RetroAchievementsUserSummarySensor(Entity):
                 "awards": awards,
                 "status": status,
                 "last_online": last_online,
-                "profile_pic": f"{IMG_BASE}{data.get('UserPic')}" if data.get("UserPic") else None,
+                "profile_pic": f"{IMG_BASE}{data.get("UserPic")}" if data.get("UserPic") else None,
                 "recently_played_count": safe_int(data.get("RecentlyPlayedCount", 0)),
             }
         else:
