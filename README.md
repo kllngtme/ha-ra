@@ -42,7 +42,6 @@ Tracks your overall RetroAchievements account stats:
   - 📊 Softcore and Hardcore Progress
 
 # Lovelace Card Example:
-This is still a work in progress but figured it would be good to get something out there for now.
 ```
 type: horizontal-stack
 cards:
