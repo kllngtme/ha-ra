@@ -39,6 +39,7 @@ Tracks your overall RetroAchievements account stats:
   - 🔗 Direct link to the game’s RetroAchievements page  
   - 💬 Rich Presence (What you're doing currently in Active/Most recently played game)
   - 🏅 Last 5 earned badges per game (icon, link, date earned)
+  - 📊 Softcore and Hardcore Progress
 
 # Lovelace Card Example:
 This is still a work in progress but figured it would be good to get something out there for now.
@@ -71,6 +72,8 @@ cards:
       }}</font></small>
 
 
+      📊 Completed: **{{ g1.attributes.completion_percentage }}**
+
       🏆 Achievements: **{{ g1.attributes.achievements_unlocked }}/{{
       g1.attributes.total_achievements }}**
 
@@ -80,6 +83,8 @@ cards:
       🕒 Last Played: **{{ as_timestamp(g1.attributes.last_played_local) |
       timestamp_custom("%b %d, %Y %I:%M %p") }}**
     text_only: true
+
 ```
-<img width="403" height="269" alt="image" src="https://github.com/user-attachments/assets/cf29b482-f8a4-4191-b6f8-b4bffb2c4531" />
+<img width="521" height="263" alt="image" src="https://github.com/user-attachments/assets/c880ddf2-11a6-4fcb-8892-cf87c5b89cd0" />
+
 
