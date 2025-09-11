@@ -1,4 +1,7 @@
+<a href="https://www.buymeacoffee.com/kllngtme" target="_blank"><img src="https://cdn.buymeacoffee.com/buttons/v2/default-yellow.png" alt="Buy Me A Coffee" style="height: 30px !important;width: 108px !important;" ></a>
+
 # 🕹️ HA-RA (Home Assistant + RetroAchievements)
+
 This is a **RetroAchievements integration for Home Assistant**.  
 Bring your retro-gaming stats, history, and live activity right into your smart home setup.  
 <img width="200" height="200" alt="logo" src="https://github.com/user-attachments/assets/1192e0ad-14ff-40ec-bb83-3ce8af7d0de0"/><br>  
