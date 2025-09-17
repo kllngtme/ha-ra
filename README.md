@@ -101,7 +101,7 @@ cards:
 ```
 
 ## Achievement of the Week Card Example
-Same thing here, Clickable Badge brings you to the Achievement. The console icon is clickable as well.<br>
+Clickable Badge brings you to the Achievement. The console icon is clickable as well.<br>
 <img width="395" height="320" alt="image" src="https://github.com/user-attachments/assets/990d628c-6dab-46fb-a975-65a90c2d0281"/>
 
 
