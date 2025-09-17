@@ -56,7 +56,7 @@ Each game sensor includes the following attributes:
 
 
 ## Most Recently Played Game Card Example
-Clickable BoxArt brings you to game URL. Badges brings you to each badge. The console icon brings you to the console URL.
+Clickable BoxArt brings you to game URL. Badges brings you to each badge. The console icon brings you to the console URL.<br>
 <img width="521" height="263" alt="image" src="https://github.com/user-attachments/assets/c880ddf2-11a6-4fcb-8892-cf87c5b89cd0"/>
 
 ```
@@ -101,7 +101,7 @@ cards:
 ```
 
 ## Achievement of the Week Card Example
-Same thing here, Clickable Badge brings you to the Achievement. The console icon is clickable as well.
+Same thing here, Clickable Badge brings you to the Achievement. The console icon is clickable as well.<br>
 <img width="395" height="320" alt="image" src="https://github.com/user-attachments/assets/990d628c-6dab-46fb-a975-65a90c2d0281"/>
 
 
