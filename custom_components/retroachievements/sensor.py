@@ -189,57 +189,118 @@ class RetroAchievementsAOTWSensor(Entity):
 
     def update(self):
         self._ra_data.update()
-        aotw = self._ra_data.data.get("aotw", {})
-        achievement = aotw.get("Achievement", {})
-        game = aotw.get("Game", {})
-        console = aotw.get("Console", {})
+        aotw = self._ra_data.data.get("aotw", {}) or {}
+        achievement = aotw.get("Achievement", {}) or {}
+        game = aotw.get("Game", {}) or {}
+        console = aotw.get("Console", {}) or {}
 
-        if achievement:
-            console_name = console.get("Title", "Unknown")
-            game_id = game.get("ID")
-            game_box_art = None
-            if game_id:
-                try:
-                    full_url = f"{BASE_API}/API_GetGame.php?i={game_id}&y={self._ra_data._api_key}"
-                    full_resp = requests.get(full_url, timeout=20)
-                    full_resp.raise_for_status()
-                    full_game = full_resp.json()
-                    game_box_art = f"{IMG_BASE}{full_game.get('ImageBoxArt')}" if full_game.get("ImageBoxArt") else None
-                    game_icon = f"{IMG_BASE}{full_game.get('GameIcon')}" if full_game.get("GameIcon") else None
-                except Exception as e:
-                    _LOGGER.debug("Could not fetch full game info for AOTW box art: %s", e)
+        # Prepare game images
+        game_box_art = None
+        game_icon = None
+        game_id = game.get("ID")
+        if game_id:
+            try:
+                full_url = f"{BASE_API}/API_GetGame.php?i={game_id}&y={self._ra_data._api_key}"
+                full_resp = requests.get(full_url, timeout=20)
+                full_resp.raise_for_status()
+                full_game = full_resp.json() or {}
+                game_box_art = f"{IMG_BASE}{full_game.get('ImageBoxArt')}" if full_game.get("ImageBoxArt") else None
+                game_icon = f"{IMG_BASE}{full_game.get('GameIcon')}" if full_game.get("GameIcon") else None
+            except Exception as e:
+                _LOGGER.debug("Could not fetch full game info for AOTW box art: %s", e)
 
-            start_raw = aotw.get("StartAt")
-            end_iso = None
-            if start_raw:
-                try:
-                    start_dt = datetime.fromisoformat(start_raw.replace("Z", "+00:00"))
-                    end_dt = start_dt + timedelta(days=7)
-                    end_iso = end_dt.isoformat()
-                except Exception as e:
-                    _LOGGER.debug("Could not parse start_at for AOTW: %s", e)
+        # Parse and compute AOTW time window
+        start_raw = aotw.get("StartAt")
+        end_iso = None
+        if start_raw:
+            try:
+                start_dt = datetime.fromisoformat(start_raw.replace("Z", "+00:00"))
+                end_dt = start_dt + timedelta(days=7)
+                end_iso = end_dt.isoformat()
+            except Exception as e:
+                _LOGGER.debug("Could not parse start_at for AOTW: %s", e)
 
-            self._state = achievement.get("Title", "Unknown")
-            self._attrs = {
-                "description": achievement.get("Description", "Unknown"),
-                "points": safe_int(achievement.get("Points")),
-                "badge_icon": f"{IMG_BASE}{achievement.get('BadgeURL')}" if achievement.get("BadgeURL") else None,
-                "achievement_url": f"https://retroachievements.org/achievement/{achievement.get('ID')}" if achievement.get("ID") else None,
-                "game": game.get("Title", "Unknown"),
-                "game_url": f"https://retroachievements.org/game/{game_id}" if game_id else None,
-                "game_icon": game_icon,
-                "game_box_art": game_box_art,
-                "console": console_name,
-                "console_url": f"https://retroachievements.org/gameList.php?c={console.get('ID')}" if console.get("ID") else None,
-                "console_icon": get_console_icon(console_name),
-                "start_at": aotw.get("StartAt"),
-                "end_at": end_iso,
-                "total_players": safe_int(aotw.get("TotalPlayers")),
-            }
-        else:
-            self._state = "Unavailable"
-            self._attrs = {}
+        # Robustly handle unlocking list shapes
+        unlocks_raw = aotw.get("Unlocks")
+        unlocks_list = []
+        if isinstance(unlocks_raw, list):
+            unlocks_list = unlocks_raw
+        elif isinstance(unlocks_raw, dict):
+            # sometimes APIs return dicts — convert to list of values
+            try:
+                unlocks_list = list(unlocks_raw.values())
+            except Exception:
+                unlocks_list = []
 
+        # Debug logging to inspect payload (enable debug logging for this component to see)
+        _LOGGER.debug("AOTW payload keys: %s", list(aotw.keys()) if isinstance(aotw, dict) else aotw)
+        try:
+            _LOGGER.debug("AOTW unlocks length: %s", len(unlocks_list))
+            _LOGGER.debug("Sample unlocks (first 3): %s", unlocks_list[:3])
+        except Exception:
+            pass
+
+        # Determine username safely (avoid attribute errors)
+        username = getattr(self._ra_data, "_username", None)
+        if not username:
+            # fallback to summary user if available
+            username = self._ra_data.data.get("summary", {}).get("User")
+
+        summary_ulid = self._ra_data.data.get("summary", {}).get("ULID")
+
+        # Find a matching unlock entry for this user (case-insensitive username or ULID)
+        matched = None
+        if username and isinstance(unlocks_list, list):
+            uname_lower = username.lower()
+            for entry in unlocks_list:
+                if not isinstance(entry, dict):
+                    continue
+                u_user = entry.get("User")
+                if u_user and isinstance(u_user, str) and u_user.lower() == uname_lower:
+                    matched = entry
+                    break
+
+        if not matched and summary_ulid and isinstance(unlocks_list, list):
+            for entry in unlocks_list:
+                if not isinstance(entry, dict):
+                    continue
+                if entry.get("ULID") == summary_ulid:
+                    matched = entry
+                    break
+
+        # If found, extract unlock info; otherwise use safe defaults
+        unlocked = bool(matched)
+        hardcore_unlocked = bool(matched.get("HardcoreMode") == 1) if matched else False
+        points_earned = safe_int(matched.get("RAPoints")) if matched and matched.get("RAPoints") is not None else 0
+        softcore_points_earned = safe_int(matched.get("RASoftcorePoints")) if matched and matched.get("RASoftcorePoints") is not None else 0
+        date_awarded_iso = matched.get("DateAwarded") if matched else None
+        date_awarded_local = _to_local_timestamp(date_awarded_iso) if date_awarded_iso else None
+
+        # final state & attributes
+        self._state = achievement.get("Title", "Unknown")
+        self._attrs = {
+            "description": achievement.get("Description", "Unknown"),
+            "points": safe_int(achievement.get("Points")),
+            "badge_icon": f"{IMG_BASE}{achievement.get('BadgeURL')}" if achievement.get("BadgeURL") else None,
+            "achievement_url": f"https://retroachievements.org/achievement/{achievement.get('ID')}" if achievement.get("ID") else None,
+            "game": game.get("Title", "Unknown"),
+            "game_url": f"https://retroachievements.org/game/{game_id}" if game_id else None,
+            "game_icon": game_icon,
+            "game_box_art": game_box_art,
+            "console": console.get("Title", "Unknown"),
+            "console_url": f"https://retroachievements.org/gameList.php?c={console.get('ID')}" if console.get("ID") else None,
+            "console_icon": get_console_icon(console.get("Title", "Unknown")),
+            "start_at": aotw.get("StartAt"),
+            "end_at": end_iso,
+            "total_players": safe_int(aotw.get("TotalPlayers")),
+            # user-specific unlock info
+            "unlocked_softcore": unlocked,
+            "unlocked_hardcore": hardcore_unlocked,
+            "hardcore_points_earned": points_earned,
+            "softcore_points_earned": softcore_points_earned,
+            "aotw_date_awarded_iso": date_awarded_iso,
+            "aotw_date_awarded_local": date_awarded_local,
+        }
 
 class RetroAchievementsActiveGameSensor(Entity):
     def __init__(self, ra_data):
