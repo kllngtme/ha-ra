@@ -104,7 +104,7 @@ cards:
 
 ## Achievement of the Week Card Example
 Clickable Badge brings you to the Achievement. The console icon is clickable as well.<br>
-<img width="395" height="320" alt="image" src="https://github.com/user-attachments/assets/990d628c-6dab-46fb-a975-65a90c2d0281"/>
+<img width="359" height="359" alt="image" src="https://github.com/user-attachments/assets/7ded4626-4cd6-4bb9-b61f-bd1e01746e43" />
 
 
 ```
@@ -153,20 +153,28 @@ content: >-
 
   ⭐ Points: <b>{{ state_attr('sensor.retroachievements_achievement_of_the_week',
   'points') }}</b><br>
+    👥 Players: <b>{{
+  state_attr('sensor.retroachievements_achievement_of_the_week',
+  'total_players') }}</b><br> 🕒 Start: <b>{% if start_dt %}{{
+  start_dt.strftime('%-m/%-d/%Y %-I:%M%p') }}{% endif %}</b><br> ⏳ Ends: <b>{%
+  if end_dt %}{{ end_dt.strftime('%-m/%-d/%Y %-I:%M%p') }}<br>{% if
+  state_attr('sensor.retroachievements_achievement_of_the_week',
+  'unlocked_hardcore') %}
 
-  👥 Players:
-  <b>{{state_attr('sensor.retroachievements_achievement_of_the_week',
-  'total_players') }}</b><br>
+  ✅ <b>You unlocked this in Hardcore Mode!</b>
 
-  🕒 Start: <b>{% if start_dt %}{{ start_dt.strftime('%-m/%-d/%Y %-I:%M%p') }}{%
-  endif %}</b><br>
+  {% elif state_attr('sensor.retroachievements_achievement_of_the_week',
+  'unlocked_softcore') %}
 
-  ⏳ Ends: <b>{% if end_dt %}{{ end_dt.strftime('%-m/%-d/%Y %-I:%M%p') }}{% endif
-  %}</b> {% else %}No data available.{% endif %}
+  ☑️ You unlocked this (Softcore)
+
+  {% else %}
+
+  ❌ You haven't unlocked this yet
+
+  {% endif %}
+
+
+  {% endif %}</b>{% else %}No data available.{% endif %}
 text_only: true
 ```
-
-
-
-
-
