@@ -20,6 +20,7 @@ Tracks the current Achievement of the Week: https://retroachievements.org/event/
 - 🕒 Start and End Date  
 - 🔗 Links to achievement, game, and console pages  
 - 🌍 Total Players who earned it
+- 🔓 Unlocked Status
 - 🖼️ Artwork `badge_icon`, `game_icon`, `box_art`, `console_icon`
 
 ### 🧑 User Summary Sensor
